@@ -121,9 +121,9 @@ def main():
         accuracy = 100. * correct / total
 
         # Calcul du score
-        w = sum(p.numel() for p in model.parameters() if p.requires_grad)
-        f = f = 2.8e8
-        score = compute_score(ps=0.0, pu=prune_amount, qw=32, qa=32, w=w, f=f)
+        w, f = compute_model_size(model, input_size=(1,3,32,32), device=device)
+
+        score = compute_score32(ps=0.0, pu=prune_amount, qw=32, qa=32, w=w, f=f)
 
         results.append({'prune_amount': prune_amount, 'accuracy': accuracy, 'score': score})
         print(f"Ratio {prune_amount:.2f} → acc: {accuracy:.2f}%, score: {score:.4f}")
