@@ -42,7 +42,7 @@ def compute_model_score(model, input_size=(3, 32, 32),
 
 def main():
     # Hyperparamètres
-    prune_amounts = [ 0.97, 0.98, 0.99]
+    prune_amounts = [0.3, 0.5, 0.6, 0.7, 0.8, 0.9, 0.93, 0.96, 0.99]
     fine_tune_epochs = 10
     batch_size = 32
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')

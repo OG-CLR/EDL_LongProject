@@ -13,14 +13,14 @@ from ptflops import get_model_complexity_info
 
 # === 🔧 Hyperparamètres ===
 OPTIMIZER_NAME    = "SGD"
-LEARNING_RATE     = 0.01
+LEARNING_RATE     = 0.1
 SCHEDULER         = True
 DATA_AUGMENTATION = True
 NESTEROV          = True
 MOMENTUM          = 0.9
 WEIGHT_DECAY      = 5e-4
-BATCH_SIZE        = 32
-EPOCHS            = 100
+BATCH_SIZE        = 128
+EPOCHS            = 150
 
 # Pruning & Quantization flags (for score calculation)
 ps = 0.0    # structured pruning fraction
