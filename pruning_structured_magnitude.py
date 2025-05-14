@@ -7,40 +7,41 @@ from torch.utils.data import DataLoader
 from resnet import ResNet18
 import pandas as pd
 from thop import profile
+from ptflops import get_model_complexity_info
 
 
-def compute_score32(ps, pu, qw, qa, w, f):
-    # Référence: w_ref=5.6e6/11173962, f_ref=2.8e8/278940160.0
-    ref_w, ref_f = 11173962, 278940160.0
-    mem = (1 - (ps + pu)) * (qw / 32) * (w / ref_w)
-    comp = (1 - ps) * (max(qw, qa) / 32) * (f / ref_f)
-    return mem + comp
-
-def compute_score16(ps, pu, qw, qa, w, f):
-    # Référence: w_ref=5.6e6/11173962, f_ref=2.8e8/278940160.0
-    ref_w, ref_f = 5.6e6, 2.8e8
-    mem = (1 - (ps + pu)) * (qw / 32) * (w / ref_w)
-    comp = (1 - ps) * (max(qw, qa) / 32) * (f / ref_f)
-    return mem + comp
-
-def compute_macs(model, input_size=(1, 3, 32, 32), device='cuda'):
+def compute_model_score(model, input_size=(3, 32, 32), 
+                        ps=0.0, pu=0.0, qw=32, qa=32, 
+                        reference_w=5.6e6, reference_f=2.8e8, device='cuda' if torch.cuda.is_available() else 'cpu'):
     """
-    Retourne le nombre de MACs (mult-adds) pour le modèle donné.
-    THOP renvoie le nombre de FLOPs (multiplications + additions),
-    on divise donc par 2 pour obtenir le nombre de MACs.
+    Calcule le score de compression d'un modèle donné selon la formule :
+    score = [(1 - (ps + pu)) * (qw / 32) * (w / ref_w)] + [(1 - ps) * (max(qw, qa) / 32) * (f / ref_f)]
     """
-    model = model.to(device)
-    dummy = torch.randn(*input_size).to(device)
-    flops, _ = profile(model, inputs=(dummy,), verbose=False)
-    macs = flops / 2
-    return macs
 
-def compute_model_size(model, input_size=(1,3,32,32), device='cuda'):
-    # nombre de poids
-    w = sum(p.numel() for p in model.parameters() if p.requires_grad)
-    # nombre de MACs
-    f = compute_macs(model, input_size=input_size, device=device)
-    return w, f
+    model = model.to(device).eval()
+
+    # Calcul du nombre de paramètres
+    w = sum(p.numel() for p in model.parameters())
+
+    # Calcul des MACs (Multiply-Adds)
+    with torch.amp.autocast(device_type='cuda', enabled=False):
+  # désactiver AMP pour mesures précises
+        macs, _ = get_model_complexity_info(model, input_size, as_strings=False, print_per_layer_stat=False)
+        f = macs  # nombre d’opérations MACs
+
+    # Application de la formule
+    score_param = ((1 - (ps + pu)) * (qw / 32) * (w / reference_w))
+    score_ops   = ((1 - ps) * (max(qw, qa) / 32) * (f / reference_f))
+
+    total_score = score_param + score_ops
+    return total_score
+
+
+
+
+
+
+
 
 
 def main():
@@ -111,9 +112,8 @@ def main():
         accuracy = 100. * correct / total
 
         # — Calcul du score (ici ps=prune_amount, pu=0)
-        w, f = compute_model_size(model, input_size=(1,3,32,32), device=device)
 
-        score = compute_score32(ps=0.0, pu=prune_amount, qw=32, qa=32, w=w, f=f)
+        score = compute_model_score(model, ps=prune_amount, pu=0.0, qw=32, qa=32)
 
         results.append({
             'prune_amount': prune_amount,

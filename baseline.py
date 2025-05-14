@@ -9,6 +9,7 @@ from torch.utils.data import DataLoader
 import pandas as pd
 from resnet import ResNet18
 from thop import profile
+from ptflops import get_model_complexity_info
 
 # === 🔧 Hyperparamètres ===
 OPTIMIZER_NAME    = "SGD"
@@ -22,10 +23,10 @@ BATCH_SIZE        = 32
 EPOCHS            = 100
 
 # Pruning & Quantization flags (for score calculation)
-PS = 0.0    # structured pruning fraction
-PU = 0.0    # unstructured pruning fraction
-QW = 32     # weight bit-width
-QA = 32     # activation bit-width
+ps = 0.0    # structured pruning fraction
+pu = 0.0    # unstructured pruning fraction
+qw = 32     # weight bit-width
+qa = 32     # activation bit-width
 
 # === 📂 Chemins de sauvegarde ===
 MODEL_DIR            = "saved_models"
@@ -88,17 +89,39 @@ scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=EPOCHS) 
 criterion = nn.CrossEntropyLoss()
 
 # === 📌 Utility functions ===
-def compute_model_size(model):
-    w = sum(p.numel() for p in model.parameters() if p.requires_grad)
-    
-    f = 2.8e8  # fixed for ResNet-18
-    return w, f
 
-def compute_score(ps, pu, qw, qa, w, f):
-    ref_w, ref_f = 5.6e6, 2.8e8
-    mem  = (1 - (ps + pu)) * (qw/32) * (w/ref_w)
-    comp = (1 - ps)       * (max(qw,qa)/32) * (f/ref_f)
-    return mem + comp
+
+
+def compute_model_score(model, input_size=(3, 32, 32), 
+                        ps=0.0, pu=0.0, qw=32, qa=32, 
+                        reference_w=5.6e6, reference_f=2.8e8, device='cuda' if torch.cuda.is_available() else 'cpu'):
+    """
+    Calcule le score de compression d'un modèle donné selon la formule :
+    score = [(1 - (ps + pu)) * (qw / 32) * (w / ref_w)] + [(1 - ps) * (max(qw, qa) / 32) * (f / ref_f)]
+    """
+
+    model = model.to(device).eval()
+
+    # Calcul du nombre de paramètres
+    w = sum(p.numel() for p in model.parameters())
+
+    # Calcul des MACs (Multiply-Adds)
+    with torch.amp.autocast(device_type='cuda', enabled=False):
+  # désactiver AMP pour mesures précises
+        macs, _ = get_model_complexity_info(model, input_size, as_strings=False, print_per_layer_stat=False)
+        f = macs  # nombre d’opérations MACs
+
+    # Application de la formule
+    score_param = ((1 - (ps + pu)) * (qw / 32) * (w / reference_w))
+    score_ops   = ((1 - ps) * (max(qw, qa) / 32) * (f / reference_f))
+
+    total_score = score_param + score_ops
+    return total_score
+
+
+
+
+
 
 def evaluate(model, loader, device):
     model.eval()
@@ -112,25 +135,13 @@ def evaluate(model, loader, device):
             total   += targets.size(0)
     return 100. * correct / total
 
-def compute_macs(model, input_size=(1, 3, 32, 32), device='cuda'):
-    """
-    Retourne le nombre de MACs (mult-adds) pour le modèle donné.
-    THOP renvoie le nombre de FLOPs (multiplications + additions),
-    on divise donc par 2 pour obtenir le nombre de MACs.
-    """
-    model = model.to(device)
-    dummy = torch.randn(*input_size).to(device)
-    flops, _ = profile(model, inputs=(dummy,), verbose=False)
-    macs = flops / 2
-    return macs
+
 
 # === 🚀 Training loop ===
 print("🚀 Starting training...")
-w = sum(p.numel() for p in model.parameters() if p.requires_grad)
-    # nombre de MACs
-f = compute_macs(model, device=device)
 
-print(w, f)
+
+
 
 
 global_best = 0.0
@@ -169,9 +180,12 @@ for epoch in range(1, EPOCHS+1):
     print(f"✅ Test   - acc: {test_acc:.2f}%")
 
     # compute epoch score
-    w, f   = compute_model_size(model)
-    escore = compute_score(PS, PU, QW, QA, w, f)
-    print(f"🔢 Score  - epoch {epoch}: {escore:.4f}")
+    
+    escore = compute_model_score(model, ps, pu, qw, qa)
+    
+    #print(f"🔢 Score  - epoch {epoch}: {escore32:.4f}")
+    #print(f"🔢 Score  - epoch {epoch}: {escore16:.4f}")
+    print(escore)
 
     epoch_stats.append({
         'epoch':    epoch,
@@ -190,7 +204,7 @@ for epoch in range(1, EPOCHS+1):
 duration = time.time() - start_time
 
 # final score (should match last epoch escore)
-final_score = compute_score(PS, PU, QW, QA, *compute_model_size(model))
+#final_score = compute_score16(PS, PU, QW, QA, *compute_model_size(model))
 
 # === 💾 Save final summary ===
 result = {
@@ -203,10 +217,10 @@ result = {
     'weight_decay':      WEIGHT_DECAY,
     'final_accuracy':    global_best,
     'duration':          duration,
-    'final_score':       final_score
+    #'final_score':       final_score
 }
 pd.DataFrame([result]).to_csv(RESULTS_CSV, mode='a', header=False, index=False)
-print(f"\n✅ Training complete  Best Acc: {global_best:.2f}%, Score: {final_score:.4f}")
+#print(f"\n✅ Training complete  Best Acc: {global_best:.2f}%, Score: {final_score:.4f}")
 print(f"📊 Epoch-by-epoch stats saved to 'epoch_results.csv'")
 
 # === 💾 Save per-epoch stats ===
