@@ -9,6 +9,14 @@ import pandas as pd
 from thop import profile
 from ptflops import get_model_complexity_info
 
+LEARNING_RATE     = 0.01
+SCHEDULER         = True
+NESTEROV          = True
+MOMENTUM          = 0.9
+WEIGHT_DECAY      = 5e-4
+BATCH_SIZE        = 128
+EPOCHS            = 20
+
 
 def compute_model_score(model, input_size=(3, 32, 32), 
                         ps=0.0, pu=0.0, qw=32, qa=32, 
@@ -43,8 +51,6 @@ def compute_model_score(model, input_size=(3, 32, 32),
 def main():
     # Hyperparamètres
     prune_amounts = [0.3, 0.5, 0.6, 0.7, 0.8, 0.9, 0.93, 0.96, 0.99]
-    fine_tune_epochs = 10
-    batch_size = 32
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     normalize = transforms.Normalize((0.4914, 0.4822, 0.4465),
@@ -95,7 +101,14 @@ def main():
 
         # Fine-tuning
         criterion = nn.CrossEntropyLoss()
-        optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=fine_tune_epochs) if SCHEDULER else None
+        optimizer = optim.SGD(
+        model.parameters(),
+        lr=LEARNING_RATE,
+        momentum=MOMENTUM,
+        weight_decay=WEIGHT_DECAY,
+        nesterov=NESTEROV
+    )
         model.train()
         for epoch in range(fine_tune_epochs):
             for images, labels in train_loader:
@@ -104,6 +117,8 @@ def main():
                 loss = criterion(model(images), labels)
                 loss.backward()
                 optimizer.step()
+            if scheduler:
+                scheduler.step()
 
         # Évaluation
         model.eval()

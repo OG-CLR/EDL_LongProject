@@ -9,6 +9,14 @@ import pandas as pd
 from thop import profile
 from ptflops import get_model_complexity_info
 
+LEARNING_RATE     = 0.01
+SCHEDULER         = True
+NESTEROV          = True
+MOMENTUM          = 0.9
+WEIGHT_DECAY      = 5e-4
+BATCH_SIZE        = 128
+EPOCHS            = 20
+
 
 def compute_model_score(model, input_size=(3, 32, 32), 
                         ps=0.0, pu=0.0, qw=32, qa=32, 
@@ -47,8 +55,6 @@ def compute_model_score(model, input_size=(3, 32, 32),
 def main():
     # Hyperparamètres
     prune_amounts    = [0.3, 0.5, 0.6, 0.7, 0.8, 0.9, 0.93, 0.96, 0.99]
-    fine_tune_epochs = 10
-    batch_size       = 32
     device           = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     normalize = transforms.Normalize((0.4914, 0.4822, 0.4465),
@@ -82,8 +88,14 @@ def main():
 
         # === Bloc 1 : backward pour remplir .grad avant pruning ===
         model.train()
-        criterion   = nn.CrossEntropyLoss()
-        opt_prune   = torch.optim.Adam(model.parameters(), lr=1e-3)
+        criterion = nn.CrossEntropyLoss()
+        opt_prune = optim.SGD(
+        model.parameters(),
+        lr=0.1,
+        momentum=MOMENTUM,
+        weight_decay=WEIGHT_DECAY,
+        nesterov=NESTEROV
+    )
         opt_prune.zero_grad()
 
         images, labels = next(iter(train_loader))
@@ -100,8 +112,15 @@ def main():
                 prune.custom_from_mask(m, 'weight', mask)
 
         # === Bloc 3 : fine-tuning après pruning ===
-        opt_ft   = torch.optim.Adam(model.parameters(), lr=1e-3)
         criterion = nn.CrossEntropyLoss()
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(opt_ft, T_max=fine_tune_epochs) if SCHEDULER else None
+        opt_ft = optim.SGD(
+        model.parameters(),
+        lr=LEARNING_RATE,
+        momentum=MOMENTUM,
+        weight_decay=WEIGHT_DECAY,
+        nesterov=NESTEROV
+    )
         model.train()
         for epoch in range(fine_tune_epochs):
             for images, labels in train_loader:
@@ -110,6 +129,8 @@ def main():
                 loss = criterion(model(images), labels)
                 loss.backward()
                 opt_ft.step()
+            if scheduler:
+                scheduler.step()
 
         # === Évaluation ===
         model.eval()
