@@ -9,9 +9,16 @@ import pandas as pd
 from thop import profile
 
 
-def compute_score(ps, pu, qw, qa, w, f):
+def compute_score32(ps, pu, qw, qa, w, f):
     # Référence: w_ref=5.6e6/11173962, f_ref=2.8e8/278940160.0
     ref_w, ref_f = 11173962, 278940160.0
+    mem = (1 - (ps + pu)) * (qw / 32) * (w / ref_w)
+    comp = (1 - ps) * (max(qw, qa) / 32) * (f / ref_f)
+    return mem + comp
+
+def compute_score16(ps, pu, qw, qa, w, f):
+    # Référence: w_ref=5.6e6/11173962, f_ref=2.8e8/278940160.0
+    ref_w, ref_f = 5.6e6, 2.8e8
     mem = (1 - (ps + pu)) * (qw / 32) * (w / ref_w)
     comp = (1 - ps) * (max(qw, qa) / 32) * (f / ref_f)
     return mem + comp
@@ -133,7 +140,7 @@ def main():
         # Calcul du score
         w, f = compute_model_size(model, input_size=(1,3,32,32), device=device)
 
-        score = compute_score(ps=0.0, pu=prune_amount, qw=32, qa=32, w=w, f=f)
+        score = compute_score32(ps=0.0, pu=prune_amount, qw=32, qa=32, w=w, f=f)
 
         results.append({'prune_amount': prune_amount, 'accuracy': accuracy, 'score': score})
         print(f"Ratio {prune_amount:.2f} → acc: {accuracy:.2f}%, score: {score:.4f}")

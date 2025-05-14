@@ -6,13 +6,40 @@ from torchvision.datasets import CIFAR10
 from torch.utils.data import DataLoader
 from resnet import ResNet18
 import pandas as pd
+from thop import profile
 
-def compute_score(ps, pu, qw, qa, w, f):
-    # Référence: w_ref=5.6e6, f_ref=2.8e8
-    ref_w, ref_f = 5.6e6, 2.8e8
-    mem  = (1 - (ps + pu)) * (qw / 32) * (w / ref_w)
+def compute_score32(ps, pu, qw, qa, w, f):
+    # Référence: w_ref=5.6e6/11173962, f_ref=2.8e8/278940160.0
+    ref_w, ref_f = 11173962, 278940160.0
+    mem = (1 - (ps + pu)) * (qw / 32) * (w / ref_w)
     comp = (1 - ps) * (max(qw, qa) / 32) * (f / ref_f)
     return mem + comp
+
+def compute_score16(ps, pu, qw, qa, w, f):
+    # Référence: w_ref=5.6e6/11173962, f_ref=2.8e8/278940160.0
+    ref_w, ref_f = 5.6e6, 2.8e8
+    mem = (1 - (ps + pu)) * (qw / 32) * (w / ref_w)
+    comp = (1 - ps) * (max(qw, qa) / 32) * (f / ref_f)
+    return mem + comp
+
+def compute_macs(model, input_size=(1, 3, 32, 32), device='cuda'):
+    """
+    Retourne le nombre de MACs (mult-adds) pour le modèle donné.
+    THOP renvoie le nombre de FLOPs (multiplications + additions),
+    on divise donc par 2 pour obtenir le nombre de MACs.
+    """
+    model = model.to(device)
+    dummy = torch.randn(*input_size).to(device)
+    flops, _ = profile(model, inputs=(dummy,), verbose=False)
+    macs = flops / 2
+    return macs
+
+def compute_model_size(model, input_size=(1,3,32,32), device='cuda'):
+    # nombre de poids
+    w = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    # nombre de MACs
+    f = compute_macs(model, input_size=input_size, device=device)
+    return w, f
 
 def main():
     # Hyperparamètres
