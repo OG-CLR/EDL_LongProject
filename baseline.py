@@ -22,6 +22,9 @@ WEIGHT_DECAY      = 5e-4
 BATCH_SIZE        = 128
 EPOCHS            = 150
 
+
+
+
 # Pruning & Quantization flags (for score calculation)
 ps = 0.0    # structured pruning fraction
 pu = 0.0    # unstructured pruning fraction
@@ -117,8 +120,6 @@ def compute_model_score(model, input_size=(3, 32, 32),
 
     total_score = score_param + score_ops
     return total_score
-
-
 
 
 
