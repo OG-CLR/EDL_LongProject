@@ -83,6 +83,13 @@ def main():
         model = ResNet18().to(device)
         model.load_state_dict(torch.load("best_baseline_resnet18.pth", map_location=device))
 
+        # Quantization en float16
+        model.half()
+        # Garder BatchNorm en float32 pour la stabilité
+        for m in model.modules():
+            if isinstance(m, (nn.BatchNorm1d, nn.BatchNorm2d)):
+                m.float()
+
         # — Pruning structuré L2
         for m in model.modules():
             if isinstance(m, nn.Conv2d):
@@ -107,7 +114,7 @@ def main():
         model.train()
         for _ in range(fine_tune_epochs):
             for imgs, labels in train_loader:
-                imgs, labels = imgs.to(device), labels.to(device)
+                imgs, labels = imgs.to(device).half(), labels.to(device)
                 optimizer.zero_grad()
                 loss = criterion(model(imgs), labels)
                 loss.backward()
@@ -120,7 +127,7 @@ def main():
         correct, total = 0, 0
         with torch.no_grad():
             for imgs, labels in test_loader:
-                imgs, labels = imgs.to(device), labels.to(device)
+                imgs, labels = imgs.to(device).half(), labels.to(device)
                 out = model(imgs)
                 _, preds = out.max(1)
                 correct += preds.eq(labels).sum().item()
@@ -129,7 +136,7 @@ def main():
 
         # — Calcul du score (ici ps=prune_amount, pu=0)
 
-        score = compute_model_score(model, ps=prune_amount, pu=0.0, qw=32, qa=32)
+        score = compute_model_score(model, ps=prune_amount, pu=0.0, qw=16, qa=16)
 
         results.append({
             'prune_amount': prune_amount,

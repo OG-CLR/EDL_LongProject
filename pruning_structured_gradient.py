@@ -88,6 +88,13 @@ def main():
             torch.load("best_baseline_resnet18.pth", map_location=device)
         )
 
+        # Quantization en float16
+        model.half()
+        # Garder BatchNorm en float32 pour la stabilité
+        for m in model.modules():
+            if isinstance(m, (nn.BatchNorm1d, nn.BatchNorm2d)):
+                m.float()
+
         # 2) Forward/Backward sur un batch pour remplir .grad
         model.train()
         criterion = nn.CrossEntropyLoss()
@@ -101,7 +108,7 @@ def main():
         opt_prune.zero_grad()
 
         imgs, lbls = next(iter(train_loader))
-        imgs, lbls = imgs.to(device), lbls.to(device)
+        imgs, lbls = imgs.to(device).half(), lbls.to(device)
         loss = criterion(model(imgs), lbls)
         loss.backward()
 
@@ -139,7 +146,7 @@ def main():
         model.train()
         for _ in range(fine_tune_epochs):
             for imgs, lbls in train_loader:
-                imgs, lbls = imgs.to(device), lbls.to(device)
+                imgs, lbls = imgs.to(device).half(), lbls.to(device)
                 opt_ft.zero_grad()
                 loss = criterion(model(imgs), lbls)
                 loss.backward()
@@ -152,7 +159,7 @@ def main():
         correct, total = 0, 0
         with torch.no_grad():
             for imgs, lbls in test_loader:
-                imgs, lbls = imgs.to(device), lbls.to(device)
+                imgs, lbls = imgs.to(device).half(), lbls.to(device)
                 out = model(imgs)
                 _, preds = out.max(1)
                 correct += preds.eq(lbls).sum().item()
@@ -162,7 +169,7 @@ def main():
         # 6) Calcul du score (ps=prune_amount, pu=0)
         
 
-        score = compute_model_score(model, ps=prune_amount, pu=0.0, qw=32, qa=32)
+        score = compute_model_score(model, ps=prune_amount, pu=0.0, qw=16, qa=16)
 
         results.append({
             'prune_amount': prune_amount,

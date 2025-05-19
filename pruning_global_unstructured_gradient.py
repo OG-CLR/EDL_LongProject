@@ -81,6 +81,13 @@ def main():
         model = ResNet18().to(device)
         model.load_state_dict(torch.load("best_baseline_resnet18.pth", map_location=device))
 
+        # Quantization en float16
+        model.half()
+        # Garder BatchNorm en float32 pour la stabilité
+        for m in model.modules():
+            if isinstance(m, (nn.BatchNorm1d, nn.BatchNorm2d)):
+                m.float()
+
 
        # === Bloc 1 : forward/backward pour le pruning global par gradient ===
         criterion = nn.CrossEntropyLoss()
@@ -96,7 +103,7 @@ def main():
 
         # on prend un batch pour remplir .grad
         images, labels = next(iter(train_loader))
-        images, labels = images.to(device), labels.to(device)
+        images, labels = images.to(device).half(), labels.to(device)
         loss = criterion(model(images), labels)
         loss.backward()
 
@@ -131,7 +138,7 @@ def main():
 
         for epoch in range(fine_tune_epochs):
             for images, labels in train_loader:
-                images, labels = images.to(device), labels.to(device)
+                images, labels = images.to(device).half(), labels.to(device)
                 opt_ft.zero_grad()
                 loss = criterion(model(images), labels)
                 loss.backward()  
@@ -145,7 +152,7 @@ def main():
         correct, total = 0, 0
         with torch.no_grad():
             for images, labels in test_loader:
-                images, labels = images.to(device), labels.to(device)
+                images, labels = images.to(device).half(), labels.to(device)
                 outputs = model(images)
                 _, preds = outputs.max(1)
                 correct += preds.eq(labels).sum().item()
@@ -155,7 +162,7 @@ def main():
         # Calcul du score
         
 
-        score = compute_model_score(model, ps=0.0, pu=prune_amount, qw=32, qa=32)
+        score = compute_model_score(model, ps=0.0, pu=prune_amount, qw=16, qa=16)
 
         results.append({'prune_amount': prune_amount, 'accuracy': accuracy, 'score': score})
         print(f"Ratio {prune_amount:.2f} → acc: {accuracy:.2f}%, score: {score:.4f}")
