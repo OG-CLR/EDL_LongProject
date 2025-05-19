@@ -4,18 +4,19 @@ import torch.nn.utils.prune as prune
 from torchvision import datasets, transforms
 from torchvision.datasets import CIFAR10
 from torch.utils.data import DataLoader
-from resnet import ResNet18
+from resnet_4 import ResNet18
 import pandas as pd
 from thop import profile
 from ptflops import get_model_complexity_info
+import torch.optim as optim
 
 LEARNING_RATE     = 0.01
 SCHEDULER         = True
 NESTEROV          = True
 MOMENTUM          = 0.9
 WEIGHT_DECAY      = 5e-4
-BATCH_SIZE        = 128
-EPOCHS            = 20
+batch_size        = 128
+fine_tune_epochs  = 20
 
 
 def compute_model_score(model, input_size=(3, 32, 32), 
@@ -83,7 +84,14 @@ def main():
         # Chargement du modèle pré-entraîné
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         model = ResNet18().to(device)
-        model.load_state_dict(torch.load("best_baseline_resnet18.pth", map_location=device))
+        model.load_state_dict(torch.load("saved_models/factorized_baseline_resnet18_4.pth", map_location=device))
+
+        # Quantization en float16
+        model.half()
+        # Garder BatchNorm en float32 pour la stabilité
+        for m in model.modules():
+            if isinstance(m, (nn.BatchNorm1d, nn.BatchNorm2d)):
+                m.float()
 
 
         # Pruning unstructured L1 GLOBAL
@@ -101,18 +109,19 @@ def main():
 
         # Fine-tuning
         criterion = nn.CrossEntropyLoss()
-        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=fine_tune_epochs) if SCHEDULER else None
         optimizer = optim.SGD(
         model.parameters(),
         lr=LEARNING_RATE,
         momentum=MOMENTUM,
         weight_decay=WEIGHT_DECAY,
         nesterov=NESTEROV
-    )
+        )
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=fine_tune_epochs) if SCHEDULER else None
+        
         model.train()
         for epoch in range(fine_tune_epochs):
             for images, labels in train_loader:
-                images, labels = images.to(device), labels.to(device)
+                images, labels = images.to(device).half(), labels.to(device)
                 optimizer.zero_grad()
                 loss = criterion(model(images), labels)
                 loss.backward()
@@ -125,7 +134,7 @@ def main():
         correct, total = 0, 0
         with torch.no_grad():
             for images, labels in test_loader:
-                images, labels = images.to(device), labels.to(device)
+                images, labels = images.to(device).half(), labels.to(device)
                 outputs = model(images)
                 _, preds = outputs.max(1)
                 correct += preds.eq(labels).sum().item()
@@ -135,7 +144,7 @@ def main():
         # Calcul du score
         
 
-        score = compute_model_score(model, ps=0.0, pu=prune_amount, qw=32, qa=32)
+        score = compute_model_score(model, ps=0.0, pu=prune_amount, qw=16, qa=16)
 
         results.append({'prune_amount': prune_amount, 'accuracy': accuracy, 'score': score})
         print(f"Ratio {prune_amount:.2f} → acc: {accuracy:.2f}%, score: {score:.4f}")
