@@ -4,10 +4,11 @@ import torch.nn.utils.prune as prune
 from torchvision import datasets, transforms
 from torchvision.datasets import CIFAR10
 from torch.utils.data import DataLoader
-from resnet import ResNet18
+from resnet_2 import ResNet18
 import pandas as pd
 from thop import profile
 from ptflops import get_model_complexity_info
+import torch.optim as optim
 
 LEARNING_RATE     = 0.01
 SCHEDULER         = True
