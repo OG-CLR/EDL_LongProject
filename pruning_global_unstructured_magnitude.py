@@ -93,6 +93,13 @@ def main():
             if isinstance(m, (nn.BatchNorm1d, nn.BatchNorm2d)):
                 m.float()
 
+        # Quantization en float16
+        model.half()
+        # Garder BatchNorm en float32 pour la stabilité
+        for m in model.modules():
+            if isinstance(m, (nn.BatchNorm1d, nn.BatchNorm2d)):
+                m.float()
+
 
         # Pruning unstructured L1 GLOBAL
         parameters_to_prune = [
